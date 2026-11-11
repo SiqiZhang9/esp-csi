@@ -52,12 +52,26 @@ agc_gain_data = np.zeros([CSI_DATA_INDEX], dtype=np.float64)
 fft_gain_data = np.zeros([CSI_DATA_INDEX], dtype=np.float64)
 fft_gains = []
 agc_gains = []
+current_label = 'none'
+NONE_KEY = 'n'
+LABEL_KEYS = '0123456789abcdefghijklmopqrstuvwxyz'
 
 class csi_data_graphical_window(QWidget):
-    def __init__(self):
+    def __init__(self, labels=()):
         super().__init__()
 
         self.resize(1280, 900)
+
+        # Key n clears the label; keys 0-9 then a-z (minus n) select labels in order.
+        self.label_keys = {NONE_KEY: 'none'}
+        for key, name in zip(LABEL_KEYS, labels):
+            self.label_keys[key] = name
+        if len(labels) > len(LABEL_KEYS):
+            print(f'warning: only the first {len(LABEL_KEYS)} labels get a key')
+        print('label keys: ' + '  '.join(f'[{k}] {v}' for k, v in self.label_keys.items()))
+        for key, name in self.label_keys.items():
+            QShortcut(QKeySequence(key), self, activated=lambda name=name: self.set_label(name))
+        self.set_label('none')
 
         self.plotWidget_ted = PlotWidget(self)
         self.plotWidget_ted.setGeometry(QtCore.QRect(0, 0, 640, 300))
@@ -98,9 +112,9 @@ class csi_data_graphical_window(QWidget):
         self.plotWidget_phase_data.setGeometry(QtCore.QRect(0, 600, 1280, 300))
         self.plotWidget_phase_data.getViewBox().enableAutoRange(axis=pg.ViewBox.YAxis)
         self.plotWidget_phase_data.addLegend()
-        self.plotWidget_multi_data.setTitle('Subcarrier Phase Data')  # 添加标题
-        self.plotWidget_multi_data.setLabel('left', 'Phase (rad)')  # Y轴标签
-        self.plotWidget_multi_data.setLabel('bottom', 'Time (Cumulative Packet Count)')  # X轴标签
+        self.plotWidget_phase_data.setTitle('Subcarrier Phase Data')  # 添加标题
+        self.plotWidget_phase_data.setLabel('left', 'Phase (rad)')  # Y轴标签
+        self.plotWidget_phase_data.setLabel('bottom', 'Time (Cumulative Packet Count)')  # X轴标签
 
 
         self.curve_phase_list = []
@@ -131,6 +145,13 @@ class csi_data_graphical_window(QWidget):
         self.timer.timeout.connect(self.update_data)
         self.timer.start(100)
         self.deta_len = 0
+
+    def set_label(self, name):
+        global current_label
+        current_label = name
+        key = next(k for k, v in self.label_keys.items() if v == name)
+        self.setWindowTitle(f'LABEL: [{key}] {name}')
+        print(f'label -> {name}')
 
     def update_curve_colors(self, color_list):
         self.deta_len = len(color_list)
@@ -210,7 +231,14 @@ def csi_data_read_parse(port: str, csv_writer, log_file_fd,callback=None):
 
         csv_reader = csv.reader(StringIO(strings))
         csi_data = next(csv_reader)
-        csi_data_len = int (csi_data[-3])
+        try:
+            csi_data_len = int (csi_data[-3])
+        except (ValueError, IndexError):
+            print('data is corrupted')
+            log_file_fd.write('data is corrupted\n')
+            log_file_fd.write(strings + '\n')
+            log_file_fd.flush()
+            continue
         if len(csi_data) != len(DATA_COLUMNS_NAMES) and len(csi_data) != len(DATA_COLUMNS_NAMES_C5C6):
             print('element number is not equal',len(csi_data),len(DATA_COLUMNS_NAMES) )
             # print(csi_data)
@@ -240,7 +268,7 @@ def csi_data_read_parse(port: str, csv_writer, log_file_fd,callback=None):
         fft_gains.append(fft_gain)
         agc_gains.append(agc_gain)
 
-        csv_writer.writerow(csi_data)
+        csv_writer.writerow(csi_data + [current_label])
 
         # Rotate data to the left
         # csi_data_array[:-1] = csi_data_array[1:]
@@ -295,7 +323,7 @@ class SubThread (QThread):
         save_file_fd = open(save_file_name, 'w')
         self.log_file_fd = open(log_file_name, 'w')
         self.csv_writer = csv.writer(save_file_fd)
-        self.csv_writer.writerow(DATA_COLUMNS_NAMES)
+        self.csv_writer.writerow(DATA_COLUMNS_NAMES + ['label'])
 
     def run(self):
         csi_data_read_parse(self.serial_port, self.csv_writer, self.log_file_fd,callback=self.data_ready.emit)
@@ -318,6 +346,8 @@ if __name__ == '__main__':
                         help='Save the data printed by the serial port to a file')
     parser.add_argument('-l', '--log', dest='log_file', action='store', default='./csi_data_log.txt',
                         help='Save other serial data the bad CSI data to a log file')
+    parser.add_argument('--labels', dest='labels', action='store', default='empty,walking,standing,sitting',
+                        help='Comma-separated labels bound to keys 0-9 then a-z (skipping n) in the plot window; key n sets "none"')
 
     args = parser.parse_args()
     serial_port = args.port
@@ -328,7 +358,7 @@ if __name__ == '__main__':
 
     subthread = SubThread(serial_port, file_name, log_file_name)
 
-    window = csi_data_graphical_window()
+    window = csi_data_graphical_window([s.strip() for s in args.labels.split(',') if s.strip()])
     subthread.data_ready.connect(window.update_curve_colors)
     subthread.start()
     window.show()

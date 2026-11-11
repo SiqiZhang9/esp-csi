@@ -39,7 +39,7 @@
 
 #define CONFIG_ESP_NOW_PHYMODE           WIFI_PHY_MODE_HT40
 #define CONFIG_ESP_NOW_RATE             WIFI_PHY_RATE_MCS0_LGI
-#define CONFIG_FORCE_GAIN                   0
+#define CONFIG_FORCE_GAIN                   1
 
 #if CONFIG_IDF_TARGET_ESP32C5 || CONFIG_IDF_TARGET_ESP32C61
 #define CSI_FORCE_LLTF                      0
@@ -164,7 +164,7 @@ static void wifi_csi_rx_cb(void *ctx, wifi_csi_info_t *info)
 #endif
     }
     esp_csi_gain_ctrl_get_gain_compensation(&compensate_gain, agc_gain, fft_gain);
-    ESP_LOGI(TAG, "compensate_gain %f, agc_gain %d, fft_gain %d", compensate_gain, agc_gain, fft_gain);
+    ESP_LOGD(TAG, "compensate_gain %f, agc_gain %d, fft_gain %d", compensate_gain, agc_gain, fft_gain);
 #endif
 
     uint32_t rx_id = *(uint32_t *)(info->payload + 15);
@@ -249,8 +249,8 @@ static void wifi_csi_init()
 #else
     wifi_csi_config_t csi_config = {
         .lltf_en           = true,
-        .htltf_en          = true,
-        .stbc_htltf2_en    = true,
+        .htltf_en          = false,
+        .stbc_htltf2_en    = false,
         .ltf_merge_en      = true,
         .channel_filter_en = true,
         .manu_scale        = false,
